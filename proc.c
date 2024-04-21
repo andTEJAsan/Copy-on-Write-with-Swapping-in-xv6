@@ -111,7 +111,6 @@ found:
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
-  p->rss = PGSIZE;
 
   return p;
 }
@@ -191,7 +190,7 @@ fork(void)
   }
 
   // Copy process state from proc.
-  if((np->pgdir = copyuvm(curproc->pgdir, curproc->sz, np)) == 0){
+  if((np->pgdir = copyuvm_cow(curproc->pgdir, curproc->sz)) == 0){
     kfree(np->kstack);
     np->kstack = 0;
     np->state = UNUSED;
@@ -287,13 +286,10 @@ wait(void)
       havekids = 1;
       if(p->state == ZOMBIE){
         // Found one.
-//        cprintf("Clearing zombie\n");
-        clear_zombie(p);
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
-        p->rss -= PGSIZE; // for k-stack
-        freevm_proc(p,p->pgdir);
+        freevm(p->pgdir);
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;
@@ -552,7 +548,6 @@ procdump(void)
     cprintf("\n");
   }
 }
-
 struct proc * get_victim_process(void){
   struct proc * p;
   uint max_rss = 0;
@@ -651,7 +646,7 @@ void flush_table(struct proc * p){
 
 pte_t* final_page(){
   struct proc * v = get_victim_process();
-  //cprintf("victim process is %d\n", (int) v->pid);
+  // cprintf("victim process is %d\n", (int) v->pid);
   v->rss -= PGSIZE;
   pte_t* pte = get_victim_page(v);
   if(pte == 0){

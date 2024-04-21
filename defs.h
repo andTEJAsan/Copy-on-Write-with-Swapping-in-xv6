@@ -10,20 +10,24 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+
+
+pde_t* copyuvm_cow(pde_t *pgdir, uint sz);
+void cow_fault(void);
+void handle_page_fault(void);
+int * get_refcnt_table(void);
 void swapinit(void);
-struct proc * get_victim_process(void);
-pte_t* final_page();
-void flush_table(struct proc * p);
-pte_t * get_victim_page(struct proc * v);
-struct proc * get_victim_process(void);
-void write_page_to_swap(uint blockno, char * va);
-void read_page_from_swap(uint blockno, char * va);
-void swap_out();
-void handle_page_fault();
-void clear_slot(pte_t* page);
-void clear_zombie(struct proc * p );
-void freevm_proc(struct proc * p, pde_t *pgdir);
-#define PTE_SW 0x008
+void swap_out(void);
+pte_t* final_page(void);
+void read_page_from_swap(uint blockno , char * va);
+void write_page_to_swap(uint blockno , char * va);
+
+#ifndef PTE_A
+#define PTE_A 0x020
+#endif
+
+#define PTE_SW 0x8
+
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
@@ -135,7 +139,7 @@ void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
-void             print_rss(void);
+void            print_rss(void);
 
 // swtch.S
 void            swtch(struct context**, struct context*);
@@ -196,7 +200,7 @@ int             deallocuvm(pde_t*, uint, uint);
 void            freevm(pde_t*);
 void            inituvm(pde_t*, char*, uint);
 int             loaduvm(pde_t*, char*, struct inode*, uint, uint);
-pde_t*          copyuvm(pde_t*, uint, struct proc *);
+pde_t*          copyuvm(pde_t*, uint);
 void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);

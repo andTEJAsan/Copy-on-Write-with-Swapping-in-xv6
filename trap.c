@@ -48,9 +48,10 @@ trap(struct trapframe *tf)
 
   switch(tf->trapno){
   case T_PGFLT:
-   handle_page_fault();
-   lapiceoi(); 
-   break;
+    // panic("wohooo\n");
+    handle_page_fault();
+    lapiceoi();
+    break;
   case T_IRQ0 + IRQ_TIMER:
     if(cpuid() == 0){
       acquire(&tickslock);

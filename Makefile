@@ -25,9 +25,10 @@ OBJS = \
 	trapasm.o\
 	trap.o\
 	uart.o\
-	pageswap.o\
 	vectors.o\
 	vm.o\
+	cow.o\
+	pageswap.o\
 
 # Cross-compiling (e.g., on Mac OS X)
 # TOOLPREFIX = i386-jos-elf
@@ -195,6 +196,9 @@ UPROGS=\
 	_usertests\
 	_wc\
 	_zombie\
+	_testcow1\
+	_testcow2\
+	_testcow3\
 	_memtest1\
 	_memtest2\
 
@@ -266,9 +270,10 @@ qemu-nox-gdb: fs.img xv6.img .gdbinit
 EXTRA=\
 	mkfs.c ulib.c user.h cat.c echo.c forktest.c grep.c kill.c\
 	ln.c ls.c mkdir.c rm.c stressfs.c usertests.c wc.c zombie.c\
-	printf.c umalloc.c memtest1.c memtest2.c\
+	printf.c umalloc.c \
 	README dot-bochsrc *.pl toc.* runoff runoff1 runoff.list\
 	.gdbinit.tmpl gdbutil\
+	testcow1.c testcow2.c testcow3.c memtest1.c memtest2.c
 
 dist:
 	rm -rf dist

@@ -244,7 +244,6 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
       kfree(mem);
       return 0;
     }
-    myproc()->rss += PGSIZE;
   }
   return newsz;
 }
@@ -273,47 +272,12 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
         panic("kfree");
       char *v = P2V(pa);
       kfree(v);
-      myproc()->rss -= PGSIZE;
       *pte = 0;
-    } else {
-      if((*pte & PTE_SW)){
-        clear_slot(pte);
-      }
     }
   }
   return newsz;
 }
 
-int
-deallocuvm_proc(struct proc * p, pde_t *pgdir, uint oldsz, uint newsz)
-{
-  pte_t *pte;
-  uint a, pa;
-
-  if(newsz >= oldsz)
-    return oldsz;
-
-  a = PGROUNDUP(newsz);
-  for(; a  < oldsz; a += PGSIZE){
-    pte = walkpgdir(pgdir, (char*)a, 0);
-    if(!pte)
-      a = PGADDR(PDX(a) + 1, 0, 0) - PGSIZE;
-    else if((*pte & PTE_P) != 0){
-      pa = PTE_ADDR(*pte);
-      if(pa == 0)
-        panic("kfree");
-      char *v = P2V(pa);
-      kfree(v);
-      p->rss -= PGSIZE;
-      *pte = 0;
-    } else {
-      if(*pte & PTE_SW){
-        clear_slot(pte);
-      }
-    }
-  }
-  return newsz;
-}
 // Free a page table and all the physical memory pages
 // in the user part.
 void
@@ -324,24 +288,6 @@ freevm(pde_t *pgdir)
   if(pgdir == 0)
     panic("freevm: no pgdir");
   deallocuvm(pgdir, KERNBASE, 0);
-  for(i = 0; i < NPDENTRIES; i++){
-    if(pgdir[i] & PTE_P){
-      char * v = P2V(PTE_ADDR(pgdir[i]));
-      kfree(v);
-    }
-  }
-  kfree((char*)pgdir);
-}
-
-
-void
-freevm_proc(struct proc * p, pde_t *pgdir)
-{
-  uint i;
-
-  if(pgdir == 0)
-    panic("freevm: no pgdir");
-  deallocuvm_proc(p, pgdir, KERNBASE, 0);
   for(i = 0; i < NPDENTRIES; i++){
     if(pgdir[i] & PTE_P){
       char * v = P2V(PTE_ADDR(pgdir[i]));
@@ -367,7 +313,7 @@ clearpteu(pde_t *pgdir, char *uva)
 // Given a parent process's page table, create a copy
 // of it for a child.
 pde_t*
-copyuvm(pde_t *pgdir, uint sz, struct proc * p)
+copyuvm(pde_t *pgdir, uint sz)
 {
   pde_t *d;
   pte_t *pte;
@@ -377,10 +323,9 @@ copyuvm(pde_t *pgdir, uint sz, struct proc * p)
   if((d = setupkvm()) == 0)
     return 0;
   for(i = 0; i < sz; i += PGSIZE){
-    p->rss += PGSIZE;
     if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
       panic("copyuvm: pte should exist");
-    if(!(*pte & PTE_P) && !(*pte & PTE_SW))
+    if(!(*pte & PTE_P))
       panic("copyuvm: page not present");
     pa = PTE_ADDR(*pte);
     flags = PTE_FLAGS(*pte);
@@ -398,21 +343,47 @@ bad:
   freevm(d);
   return 0;
 }
-void clear_zombie(struct proc * p){
-  pde_t * pgdir = p->pgdir;
-  for(int i = 0 ; i < NPDENTRIES; i++){
-    if(pgdir[i] & PTE_P){
-      pte_t* pte = (pte_t*) P2V(PTE_ADDR(pgdir[i]));
-      for(int j= 0 ; j < NPTENTRIES; j++){
-        if(!(pte[j] & PTE_P) && (pte[j] & PTE_SW)){
-          clear_slot(&pte[j]);
-          pte[j] = 0;
-        }
-      }
-    }
-  }
-}
+pde_t*
+copyuvm_cow(pde_t *pgdir, uint sz)
+{
+  pde_t *d;
+  pte_t *pte;
+  uint pa, i, flags;
+  // char *mem;
+  int * page_to_refcnt = get_refcnt_table();
 
+  if((d = setupkvm()) == 0)
+    return 0;
+  for(i = 0; i < sz; i += PGSIZE){
+    if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
+      panic("copyuvm: pte should exist");
+    if(!(*pte & PTE_P))
+      panic("copyuvm: page not present");
+    pa = PTE_ADDR(*pte);
+    flags = PTE_FLAGS(*pte);
+    // if((mem = kalloc()) == 0)
+    //   goto bad;
+    // memmove(mem, (char*)P2V(pa), PGSIZE);
+
+    int new_flags = flags & ~PTE_W;
+    *pte &= ~PTE_W;
+    if(mappages(d, (void*)i, PGSIZE, pa, new_flags) < 0) {
+      // kfree(mem);
+      goto bad;
+    }
+
+    page_to_refcnt[pa >> PTXSHIFT]++;
+    cprintf("copyuvm_cow: refcnt = %d of pageno %d\n", page_to_refcnt[pa >> PTXSHIFT], pa >> PTXSHIFT);
+
+  }
+
+  lcr3(V2P(pgdir));
+  return d;
+
+bad:
+  freevm(d);
+  return 0;
+}
 //PAGEBREAK!
 // Map user virtual address to kernel address.
 char*

@@ -9,6 +9,15 @@
 #include "mmu.h"
 #include "spinlock.h"
 
+
+int page_to_refcnt[PHYSTOP >> PTXSHIFT];
+int * get_refcnt_table(void){
+  return page_to_refcnt;
+}
+
+
+
+
 void freerange(void *vstart, void *vend);
 extern char end[]; // first address after kernel loaded from ELF file
                    // defined by the kernel linker script in kernel.ld
@@ -52,7 +61,9 @@ freerange(void *vstart, void *vend)
   for(; p + PGSIZE <= (char*)vend; p += PGSIZE)
   {
     kfree(p);
-    kmem.num_free_pages+=1;
+    // kmem.num_free_pages+=1;
+    page_to_refcnt[V2P(p) >> PTXSHIFT] = 0;
+
   }
     
 }
@@ -68,10 +79,12 @@ kfree(char *v)
 
   if((uint)v % PGSIZE || v < end || V2P(v) >= PHYSTOP)
     panic("kfree");
-  //else if(v < end)
-  //  panic("kfree2");
-  //else if (V2P(v) >= PHYSTOP)
-  //  panic("kfree3");
+  if(page_to_refcnt[V2P(v) >> PTXSHIFT] > 1)
+  {
+    // cprintf("page %d freed in cow", V2P(v) >> PTXSHIFT);
+    page_to_refcnt[V2P(v) >> PTXSHIFT] -= 1;
+    return;
+  }
 
   // Fill with junk to catch dangling refs.
   memset(v, 1, PGSIZE);
@@ -101,15 +114,17 @@ kalloc(void)
   {
     kmem.freelist = r->next;
     kmem.num_free_pages-=1;
+    page_to_refcnt[V2P(r) >> PTXSHIFT] = 1;
+    cprintf("setting refcnt of page %d\n", V2P(r) >> PTXSHIFT);
   }
     
   if(kmem.use_lock)
     release(&kmem.lock);
+
   if(r) return (char*)r;
 
   swap_out();
   return kalloc();
-
 }
 uint 
 num_of_FreePages(void)
