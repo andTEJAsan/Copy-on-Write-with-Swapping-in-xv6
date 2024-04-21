@@ -12,7 +12,7 @@ struct superblock;
 
 
 
-pde_t* copyuvm_cow(pde_t *pgdir, uint sz);
+pde_t* copyuvm_cow(pde_t *pgdir, uint sz, struct proc *p);
 void cow_fault(void);
 void handle_page_fault(void);
 int * get_refcnt_table(void);
@@ -21,6 +21,11 @@ void swap_out(void);
 pte_t* final_page(void);
 void read_page_from_swap(uint blockno , char * va);
 void write_page_to_swap(uint blockno , char * va);
+void freevm_proc(struct proc * p, pde_t *pgdir);
+int deallocuvm_proc(struct proc * p, pde_t *pgdir, uint oldsz, uint newsz);
+void clear_slot(pte_t* page);
+void clear_zombie(struct proc * p);
+int dec_swap_slot_refcnt(pte_t * pte); // returns the new refcnt
 
 #ifndef PTE_A
 #define PTE_A 0x020

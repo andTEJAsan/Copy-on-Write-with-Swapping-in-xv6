@@ -75,6 +75,9 @@ freerange(void *vstart, void *vend)
 void
 kfree(char *v)
 {
+  // v2p(v)->pa
+  // rmap[pa] -> list of pte_t * s, pointing to this page
+  // we have to figure out , the indices in the swapslot hdr for this pa;
   struct run *r;
 
   if((uint)v % PGSIZE || v < end || V2P(v) >= PHYSTOP)
@@ -115,7 +118,7 @@ kalloc(void)
     kmem.freelist = r->next;
     kmem.num_free_pages-=1;
     page_to_refcnt[V2P(r) >> PTXSHIFT] = 1;
-    cprintf("setting refcnt of page %d\n", V2P(r) >> PTXSHIFT);
+    // cprintf("setting refcnt of page %d\n", V2P(r) >> PTXSHIFT);
   }
     
   if(kmem.use_lock)

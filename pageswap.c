@@ -12,6 +12,8 @@ struct swapslothdr {
 	uint is_free;
 	uint page_perm;
 	uint blockno;
+	// list of all pte_t * pointing to this page
+	int refcnt_to_disk;
 
 };
 
@@ -54,6 +56,7 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 }
 
 void swap_out(){
+	int * page_to_refcnt = get_refcnt_table();
 	pte_t* pte = final_page();
 	for(int i = 0 ; i < NPAGE; i++){
 		if(swap_slots[i].is_free == FREE){
@@ -61,7 +64,15 @@ void swap_out(){
 			swap_slots[i].page_perm = PTE_FLAGS(*pte);
 			uint pa = PTE_ADDR(*pte);
 			write_page_to_swap(swap_slots[i].blockno, (char*)P2V(pa));
-			kfree((char*)P2V(pa));
+
+			int refcnt = page_to_refcnt[pa >> PTXSHIFT];
+			// this is needed because when we are swapping out a page that is referred to by 
+			// multiple page table entries, we need to free the page only when all the references are gone
+			swap_slots[i].refcnt_to_disk = refcnt;
+			for(int i = 0 ; i < refcnt; i++){
+				kfree((char*)P2V(pa));
+			}
+
 			*pte = swap_slots[i].blockno << PTXSHIFT;
 			*pte |= PTE_FLAGS(*pte);
 			*pte |= PTE_SW;
@@ -92,18 +103,29 @@ void cow_page(pte_t * pte){
 
 }
 
-
+void clear_slot(pte_t* page){
+	int blockno = PTE_ADDR(*page) >> PTXSHIFT;
+	swap_slots[(blockno - SWAPBASE) / BPPAGE].is_free = FREE;
+}
+int dec_swap_slot_refcnt(pte_t * pte){
+	int blockno = PTE_ADDR(*pte) >> PTXSHIFT;
+	int x = swap_slots[(blockno - SWAPBASE) / BPPAGE].refcnt_to_disk;
+	if(x == 0){
+		panic("refcnt already 0\n");
+	}
+	return --(swap_slots[(blockno - SWAPBASE) / BPPAGE].refcnt_to_disk);
+};
 void handle_page_fault(){
 	// cprintf("Page fault\n");
 	int * page_to_refcnt = get_refcnt_table();
 	uint va = rcr2();
 	struct proc* p = myproc();
 	pte_t * pte = walkpgdir(p->pgdir, (void*) va, 0);
-	if(!(*pte & PTE_U)){
-		panic("OS pages cant be swapped");
-	}
 	if(*pte & PTE_P){
 		// 
+		if(!(*pte & PTE_U)){
+			panic("OS pages cant be swapped");
+		}
 		cprintf("page fault due to cow\n");
 		if(page_to_refcnt[*pte >> PTXSHIFT] > 1){
 			// copy on write
@@ -124,10 +146,12 @@ void handle_page_fault(){
 			panic("kalloc failing in pagefault\n");
 		}
 		p->rss += PGSIZE;
-		pte_t * pte = walkpgdir(p->pgdir, (void*) va, 0);
+		// pte_t * pte = walkpgdir(p->pgdir, (void*) va, 0);
 		uint blockno = *pte >> PTXSHIFT;
 		read_page_from_swap(blockno, pg);
 		int swap_slot_i = (blockno - SWAPBASE) / BPPAGE;
+		int * page_to_refcnt = get_refcnt_table();
+		page_to_refcnt[(*pte) >> PTXSHIFT] = swap_slots[swap_slot_i].refcnt_to_disk;
 		*pte = (V2P(pg) & ~0xFFF)  | swap_slots[swap_slot_i].page_perm;
 		*pte |= PTE_P;
 		swap_slots[swap_slot_i].is_free = FREE;

@@ -190,7 +190,7 @@ fork(void)
   }
 
   // Copy process state from proc.
-  if((np->pgdir = copyuvm_cow(curproc->pgdir, curproc->sz)) == 0){
+  if((np->pgdir = copyuvm_cow(curproc->pgdir, curproc->sz,np)) == 0){
     kfree(np->kstack);
     np->kstack = 0;
     np->state = UNUSED;
@@ -286,10 +286,12 @@ wait(void)
       havekids = 1;
       if(p->state == ZOMBIE){
         // Found one.
+        clear_zombie(p);
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
-        freevm(p->pgdir);
+        p->rss -= PGSIZE; // for k-stack
+        freevm_proc(p,p->pgdir);
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;
