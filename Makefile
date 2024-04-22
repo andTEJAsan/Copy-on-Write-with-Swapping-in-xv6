@@ -201,6 +201,8 @@ UPROGS=\
 	_testcow3\
 	_memtest1\
 	_memtest2\
+	_memtest3\
+	_memtest4\
 
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)

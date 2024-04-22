@@ -82,24 +82,23 @@ kfree(char *v)
 
   if((uint)v % PGSIZE || v < end || V2P(v) >= PHYSTOP)
     panic("kfree");
-  if(page_to_refcnt[V2P(v) >> PTXSHIFT] > 1)
-  {
-    // cprintf("page %d freed in cow", V2P(v) >> PTXSHIFT);
-    page_to_refcnt[V2P(v) >> PTXSHIFT] -= 1;
-    return;
-  }
-
   // Fill with junk to catch dangling refs.
-  memset(v, 1, PGSIZE);
+  if(get_refcnt(V2P(v)) == 0){
+    memset(v, 1, PGSIZE);
 
-  if(kmem.use_lock)
-    acquire(&kmem.lock);
-  r = (struct run*)v;
-  r->next = kmem.freelist;
-  kmem.num_free_pages+=1;
-  kmem.freelist = r;
-  if(kmem.use_lock)
-    release(&kmem.lock);
+    if(kmem.use_lock)
+      acquire(&kmem.lock);
+    r = (struct run*)v;
+    r->next = kmem.freelist;
+    kmem.num_free_pages+=1;
+    kmem.freelist = r;
+    if(kmem.use_lock)
+      release(&kmem.lock);
+  }
+  else{
+    // cprintf("page %d is not free\n", V2P(v) >> PTXSHIFT);
+    cprintf("Wait till refcnt is 0\n");
+  }
 }
 
 // Allocate one 4096-byte page of physical memory.

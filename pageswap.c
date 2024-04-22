@@ -14,8 +14,14 @@ struct swapslothdr {
 	uint blockno;
 	// list of all pte_t * pointing to this page
 	int refcnt_to_disk;
+	pte_t* proc_pte_refs[NPROC];
+	int proc_pid_refs[NPROC];
+
 
 };
+uint page_to_ref_cnt[PHYSTOP >> PTXSHIFT];
+pte_t* page_to_ptes_map[PHYSTOP >> PTXSHIFT][NPROC];
+int page_to_proc_pid_map[PHYSTOP >> PTXSHIFT][NPROC];
 
 #define BPPAGE (PGSIZE/BSIZE)
 #define FREE 1
@@ -33,6 +39,38 @@ void swapinit(void){
 	}
 	cprintf("Swap slots initialized\n");
 }
+
+void swap_info_on_hdr(uint pa, uint slot_num){
+    swap_slots[slot_num].refcnt_to_disk = page_to_ref_cnt[pa>>PTXSHIFT];
+
+    for (uint i = 0; i < swap_slots[slot_num].refcnt_to_disk; i++){
+        pte_t *pte = page_to_ptes_map[pa >> PTXSHIFT][i];
+        swap_slots[slot_num].proc_pte_refs[i] = pte;
+        swap_slots[slot_num].proc_pid_refs[i] = page_to_proc_pid_map[pa >> PTXSHIFT][i];
+        *pte = (slot_num << PTXSHIFT) | PTE_FLAGS(*pte) | PTE_SW;
+        *pte &= (~PTE_P);
+	update_rss(swap_slots[slot_num].proc_pid_refs[i], -PGSIZE);
+    }
+	page_to_ref_cnt[pa >> PTXSHIFT] = 0; // no longer on the memory
+}
+
+void get_hdrs_from_disk(uint pa, uint slot_num)
+{
+    page_to_ref_cnt[pa >> PTXSHIFT]  = swap_slots[slot_num].refcnt_to_disk;
+    for (uint i = 0; i < swap_slots[slot_num].refcnt_to_disk; i++){
+        pte_t *pte = swap_slots[slot_num].proc_pte_refs[i];
+        *pte = pa | (PTE_FLAGS(*pte)) | PTE_P;
+        *pte &= ~PTE_SW;
+        page_to_ptes_map[pa >> PTXSHIFT][i] = pte;
+        page_to_proc_pid_map[pa >> PTXSHIFT][i] = swap_slots[slot_num].proc_pid_refs[i];
+	update_rss(swap_slots[slot_num].proc_pid_refs[i], PGSIZE);
+    }
+}
+
+
+
+
+
 static pte_t *
 walkpgdir(pde_t *pgdir, const void *va, int alloc)
 {
@@ -55,6 +93,79 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
   return &pgtab[PTX(va)];
 }
 
+
+void inc_refcnt_in_memory(uint pa, pte_t* pte, int pid){
+    // acquiresleep(&reflock);
+    page_to_ptes_map[pa >> PTXSHIFT][page_to_ref_cnt[pa>>12]] = pte;
+    page_to_proc_pid_map[pa >> PTXSHIFT][page_to_ref_cnt[pa >> PTXSHIFT]] = pid;
+    // cprintf("incrementing pid: %d", pid);
+    page_to_ref_cnt[pa >> PTXSHIFT] += 1;
+    update_rss(pid, PGSIZE);
+    // releasesleep(&reflock);
+    // cprintf("incremented %x to %x with pte:%x\n", pa, rmap[pa >> 12], pte);
+}
+
+
+void inc_refcnt_in_hdr(int slot_no_i, pte_t *pte, int pid)
+{
+    swap_slots[slot_no_i].proc_pte_refs[swap_slots[slot_no_i].refcnt_to_disk] = pte;
+    swap_slots[slot_no_i].proc_pid_refs[swap_slots[slot_no_i].refcnt_to_disk] = pid;
+    swap_slots[slot_no_i].refcnt_to_disk += 1;
+}
+void dec_refcnt_in_memory(uint pa, pte_t* pte)
+{
+    for (int i = 0; i < page_to_ref_cnt[pa>>PTXSHIFT]; i++){
+        if (page_to_ptes_map[pa>>PTXSHIFT][i] == pte){
+		update_rss(page_to_proc_pid_map[pa >> PTXSHIFT][i], -PGSIZE);
+		for (int j = i; j < page_to_ref_cnt[pa >> PTXSHIFT] - 1; j++)
+		{
+			// shift to left
+			page_to_ptes_map[pa >> PTXSHIFT][j] = page_to_ptes_map[pa >> PTXSHIFT][j + 1];
+			page_to_proc_pid_map[pa >> PTXSHIFT][j] = page_to_proc_pid_map[pa >> PTXSHIFT][j + 1];
+		}
+		page_to_ref_cnt[pa >> PTXSHIFT] -= 1;
+        }
+	return;
+    }
+	panic("pte not found in decrementing");
+}
+
+void dec_refcnt_in_hdr(int slot_no_i, pte_t *pte)
+{
+
+    for (int i = 0; i < swap_slots[slot_no_i].refcnt_to_disk; i++)
+    {
+        if (swap_slots[slot_no_i].proc_pte_refs[i] == pte)
+        {
+		      
+		for (int j = i; j < swap_slots[slot_no_i].refcnt_to_disk - 1; j++)
+		{
+			// shift to left
+			swap_slots[slot_no_i].proc_pid_refs[j] = swap_slots[slot_no_i].proc_pid_refs[j + 1];
+			swap_slots[slot_no_i].proc_pte_refs[j] = swap_slots[slot_no_i].proc_pte_refs[j + 1];
+		}
+		swap_slots[slot_no_i].refcnt_to_disk -= 1;
+		if (swap_slots[slot_no_i].refcnt_to_disk == 0)
+		{
+			swap_slots[slot_no_i].is_free = FREE;
+		}
+        }
+	return;
+    }
+	// cprintf("%x %x\n", pte, *pte);
+	panic("pte not found in decrementing");
+}
+
+uint get_refcnt(uint pa)
+{
+    return page_to_ref_cnt[pa >> PTXSHIFT];
+}
+
+void init_refcnt(uint pa)
+{
+    page_to_ref_cnt[pa >> PTXSHIFT] = 0;
+}
+
 void swap_out(){
 	// int * page_to_refcnt = get_refcnt_table();
 	pte_t* pte = final_page();
@@ -64,19 +175,14 @@ void swap_out(){
 			swap_slots[i].page_perm = PTE_FLAGS(*pte);
 			uint pa = PTE_ADDR(*pte);
 			write_page_to_swap(swap_slots[i].blockno, (char*)P2V(pa));
-
+			swap_info_on_hdr(pa, i);
 			// int refcnt = page_to_refcnt[pa >> PTXSHIFT];
 			// this is needed because when we are swapping out a page that is referred to by 
 			// multiple page table entries, we need to free the page only when all the references are gone
 			// swap_slots[i].refcnt_to_disk = refcnt;
 			// for(int i = 0 ; i < refcnt; i++){
-				kfree((char*)P2V(pa));
+			kfree((char*)P2V(pa));
 			// }
-
-			*pte = swap_slots[i].blockno << PTXSHIFT;
-			*pte |= PTE_FLAGS(*pte);
-			*pte |= PTE_SW;
-			*pte &= ~PTE_P;
 			return;
 		}
 	}
@@ -115,42 +221,99 @@ int dec_swap_slot_refcnt(pte_t * pte){
 	}
 	return --(swap_slots[(blockno - SWAPBASE) / BPPAGE].refcnt_to_disk);
 };
-void handle_page_fault(){
-	// cprintf("Page fault\n");
-	int * page_to_refcnt = get_refcnt_table();
-	uint va = rcr2();
-	struct proc* p = myproc();
-	pte_t * pte = walkpgdir(p->pgdir, (void*) va, 0);
-	if(*pte & PTE_P){
-		// 
-		cprintf("page fault due to cow\n");
-		if(page_to_refcnt[*pte >> PTXSHIFT] > 1){
-			// copy on write
-			cow_page(pte);
+// void handle_page_fault(){
+// 	// cprintf("Page fault\n");
+// 	int * page_to_refcnt = get_refcnt_table();
+// 	uint va = rcr2();
+// 	struct proc* p = myproc();
+// 	pte_t * pte = walkpgdir(p->pgdir, (void*) va, 0);
+// 	if(*pte & PTE_P){
+// 		// 
+// 		cprintf("page fault due to cow\n");
+// 		if(page_to_refcnt[*pte >> PTXSHIFT] > 1){
+// 			// copy on write
+// 			cow_page(pte);
+// 		}
+// 		else {
+// 			// normal pagefault
+// 			// give the write flag when single reference
+// 			cprintf("no duplicatin is needed for pg = %d", *pte >> PTXSHIFT);
+// 			*pte = *pte | PTE_W;
+// 			lcr3(V2P(p->pgdir));
+// 		}
+// 	}
+// 	else {
+// 		cprintf("normal pagefault\n");
+// 		char * pg = kalloc();
+// 		if(pg == 0){
+// 			panic("kalloc failing in pagefault\n");
+// 		}
+// 		p->rss += PGSIZE;
+// 		// pte_t * pte = walkpgdir(p->pgdir, (void*) va, 0);
+// 		uint blockno = *pte >> PTXSHIFT;
+// 		read_page_from_swap(blockno, pg);
+// 		int swap_slot_i = (blockno - SWAPBASE) / BPPAGE;
+// 		int * page_to_refcnt = get_refcnt_table();
+// 		page_to_refcnt[(*pte) >> PTXSHIFT] = swap_slots[swap_slot_i].refcnt_to_disk;
+// 		*pte = (V2P(pg) & ~0xFFF)  | swap_slots[swap_slot_i].page_perm;
+// 		*pte |= PTE_P;
+// 		swap_slots[swap_slot_i].is_free = FREE;
+// 	}
+// }
+
+
+void handle_page_fault(void)
+{
+    uint va = rcr2();
+    pte_t *pte = walkpgdir(myproc()->pgdir, (void *)va, 0);
+    if ((*pte & PTE_P))
+    {
+	// cow fault has occured
+        if (!(*pte & PTE_W)){
+		char *mem;
+		uint flags = PTE_FLAGS(*pte);
+		uint pa = PTE_ADDR(*pte);
+		if (get_refcnt(pa) > 1){
+			if ((mem = kalloc()) == 0){
+				panic("kalloc failed in handle page fault");
+			}
+			inc_refcnt_in_memory(V2P(mem), pte, myproc()->pid);
+			if (*pte & PTE_P){
+				// if in memory
+				dec_refcnt_in_memory(pa, pte);
+			}
+			else if (*pte & PTE_SW)
+			{
+				// if swapped
+				int slot_no_i = pa >> PTXSHIFT;
+				dec_refcnt_in_hdr(slot_no_i, pte);
+			}
+			
+			memmove(mem, (char *)P2V(pa), PGSIZE);
+			*pte = V2P(mem) | PTE_W | flags;
+			lcr3(V2P(myproc()->pgdir));
+			
+			return;
+			// remove returns later
 		}
 		else {
-			// normal pagefault
-			// give the write flag when single reference
-			cprintf("no duplicatin is needed for pg = %d", *pte >> PTXSHIFT);
-			*pte = *pte | PTE_W;
-			lcr3(V2P(p->pgdir));
+			// if refcnt is 1, we can make the page writeable, we dont need to copy
+			*pte |= PTE_W;
+			return;
 		}
-	}
-	else {
-		cprintf("normal pagefault\n");
-		char * pg = kalloc();
-		if(pg == 0){
-			panic("kalloc failing in pagefault\n");
-		}
-		p->rss += PGSIZE;
-		// pte_t * pte = walkpgdir(p->pgdir, (void*) va, 0);
-		uint blockno = *pte >> PTXSHIFT;
-		read_page_from_swap(blockno, pg);
-		int swap_slot_i = (blockno - SWAPBASE) / BPPAGE;
-		int * page_to_refcnt = get_refcnt_table();
-		page_to_refcnt[(*pte) >> PTXSHIFT] = swap_slots[swap_slot_i].refcnt_to_disk;
-		*pte = (V2P(pg) & ~0xFFF)  | swap_slots[swap_slot_i].page_perm;
-		*pte |= PTE_P;
-		swap_slots[swap_slot_i].is_free = FREE;
-	}
+        }
+    } else { 
+        if (!(*pte & PTE_SW)){
+            panic("page not present nor swapped");
+        }
+	else
+	{
+            int slot_no_i = (*pte) >> PTXSHIFT;
+            swap_slots[slot_no_i].is_free = FREE;
+            char *pg = kalloc();
+            write_page_to_swap(swap_slots[slot_no_i].blockno, pg);
+	    get_hdrs_from_disk(V2P(pg), slot_no_i);
+        }
+
+    }
 }

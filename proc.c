@@ -660,3 +660,14 @@ pte_t* final_page(){
   }
   return pte;
 }
+void update_rss(int pid, int increment){
+  struct proc *p;
+  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  {
+    if (p->pid == pid)
+    {
+      p->rss += increment;
+      return;
+    }
+  }
+}

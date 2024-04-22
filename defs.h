@@ -26,6 +26,11 @@ int deallocuvm_proc(struct proc * p, pde_t *pgdir, uint oldsz, uint newsz);
 void clear_slot(pte_t* page);
 void clear_zombie(struct proc * p);
 int dec_swap_slot_refcnt(pte_t * pte); // returns the new refcnt
+void swap_info_on_hdr(uint pa, uint slot_num);
+void update_rss(int pid, int increment);
+void dec_refcnt_in_hdr(int slot_no_i, pte_t *pte);
+void dec_refcnt_in_memory(uint pa, pte_t* pte);
+uint get_refcnt(uint pa);
 
 #ifndef PTE_A
 #define PTE_A 0x020
