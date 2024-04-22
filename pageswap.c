@@ -120,10 +120,11 @@ void dec_refcnt_in_memory(uint pa, pte_t* pte)
 			page_to_proc_pid_map[pa >> PTXSHIFT][j] = page_to_proc_pid_map[pa >> PTXSHIFT][j + 1];
 		}
 		page_to_ref_cnt[pa >> PTXSHIFT] -= 1;
+		return;
         }
-	return;
     }
-	panic("pte not found in decrementing");
+// 	panic("pte not found in decrementing");
+
 }
 
 void dec_refcnt_in_hdr(int slot_no_i, pte_t *pte)
@@ -145,11 +146,13 @@ void dec_refcnt_in_hdr(int slot_no_i, pte_t *pte)
 		{
 			swap_slots[slot_no_i].is_free = FREE;
 		}
+
+		return;
         }
-	return;
+
     }
 	// cprintf("%x %x\n", pte, *pte);
-	panic("pte not found in decrementing");
+	// panic("pte not found in decrementing");
 }
 
 uint get_refcnt(uint pa)
@@ -164,20 +167,24 @@ void init_refcnt(uint pa)
 
 void swap_out(){
 	// int * page_to_refcnt = get_refcnt_table();
+	// cprintf("here\n");
 	pte_t* pte = final_page();
+	if(pte == 0){
+		panic("No page to swap out\n");
+	}
+	// cprintf("here2\n");
 	for(int i = 0 ; i < NPAGE; i++){
 		if(swap_slots[i].is_free == FREE){
 			swap_slots[i].is_free = NOT_FREE;
-			swap_slots[i].page_perm = PTE_FLAGS(*pte);
-			uint pa = PTE_ADDR(*pte);
-			write_page_to_swap(swap_slots[i].blockno, (char*)P2V(pa));
-			swap_info_on_hdr(pa, i);
+			char* va = P2V(PTE_ADDR(*pte));
+			write_page_to_swap(swap_slots[i].blockno, va);
+			swap_info_on_hdr(V2P(va), i);
 			// int refcnt = page_to_refcnt[pa >> PTXSHIFT];
 			// this is needed because when we are swapping out a page that is referred to by 
 			// multiple page table entries, we need to free the page only when all the references are gone
 			// swap_slots[i].refcnt_to_disk = refcnt;
 			// for(int i = 0 ; i < refcnt; i++){
-			kfree((char*)P2V(pa));
+			kfree(va);
 			// }
 			return;
 		}

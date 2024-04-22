@@ -122,7 +122,9 @@ kalloc(void)
   if(kmem.use_lock)
     release(&kmem.lock);
 
-  if(r) return (char*)r;
+  if(r) {
+    return (char*)r;
+  }
   swap_out();
   return kalloc();
 }

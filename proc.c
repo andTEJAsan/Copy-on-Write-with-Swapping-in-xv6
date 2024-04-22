@@ -571,80 +571,75 @@ struct proc * get_victim_process(void){
     return v;
 }
 
-static pte_t *
-walkpgdir(pde_t *pgdir, const void *va, int alloc)
-{
-  pde_t *pde;
-  pte_t *pgtab;
+// static pte_t *
+// walkpgdir(pde_t *pgdir, const void *va, int alloc)
+// {
+//   pde_t *pde;
+//   pte_t *pgtab;
 
-  pde = &pgdir[PDX(va)];
-  if(*pde & PTE_P){
-    pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
-  } else {
-    if(!alloc || (pgtab = (pte_t*)kalloc()) == 0)
-      return 0;
-    // Make sure all those PTE_P bits are zero.
-    memset(pgtab, 0, PGSIZE);
-    // The permissions here are overly generous, but they can
-    // be further restricted by the permissions in the page table
-    // entries, if necessary.
-    *pde = V2P(pgtab) | PTE_P | PTE_W | PTE_U;
-  }
-  return &pgtab[PTX(va)];
-}
+//   pde = &pgdir[PDX(va)];
+//   if(*pde & PTE_P){
+//     pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
+//   } else {
+//     if(!alloc || (pgtab = (pte_t*)kalloc()) == 0)
+//       return 0;
+//     // Make sure all those PTE_P bits are zero.
+//     memset(pgtab, 0, PGSIZE);
+//     // The permissions here are overly generous, but they can
+//     // be further restricted by the permissions in the page table
+//     // entries, if necessary.
+//     *pde = V2P(pgtab) | PTE_P | PTE_W | PTE_U;
+//   }
+//   return &pgtab[PTX(va)];
+// }
 pte_t* get_victim_page(struct proc * v){
   pde_t * pgdir = v->pgdir;
-  pte_t* pte;
-  //for(int i = 0 ; i < NPDENTRIES ; i++){
-  //  if(!(pgdir[i] & PTE_P)){
-  //    continue;
-  //  }
-  //  pte_t* pgtable = (pte_t*)P2V(PTE_ADDR(pgdir[i]));
-  //  for(int j = 0 ; j < NPTENTRIES; j++){
-  //    if((pgtable[j] & PTE_P) && (pgtable[j] & PTE_U) && !(pgtable[j] & PTE_A)){
-  //      pte = &pgtable[j];
-  //      return pte;
-  //    }
-  //  }
-  //}
-
-
-        for(int i = 0 ; i < v->sz; i+= PGSIZE){
-                pte = walkpgdir(pgdir, (void * ) i , 0);
-                if((*pte & PTE_P) && (*pte & PTE_U) && !(*pte & PTE_A)){
-                        return pte;
-                }
+  // pte_t* pte;
+  for (int i = 0; i < NPDENTRIES; i++)
+  {
+    if (pgdir[i] & PTE_P)
+    {
+      pte_t *pgtab = (pte_t *)P2V(PTE_ADDR(pgdir[i]));
+      for (int j = 0; j < NPTENTRIES; j++)
+      {
+        if ((pgtab[j] & PTE_P) && (pgtab[j] & PTE_U) && !(pgtab[j] & PTE_A))
+        {
+          return &pgtab[j];
         }
+      }
+    }
+  }
+
   return 0;
 }
 
 void flush_table(struct proc * p){
   pde_t * pgdir = p->pgdir;
   int ctr = 0;
-  //for(int i = 0 ; i < NPDENTRIES; i++){
-  //  if(!(pgdir[i] & PTE_P)){
-  //    continue;
-  //  }
-  //  pte_t * pgtable = (pte_t*) P2V(PTE_ADDR(pgdir[i]));
-  //  for(int j = 0 ; j < NPTENTRIES; j++){
-  //    if((pgtable[j] & PTE_P) && (pgtable[j] & PTE_U) && (pgtable[j] & PTE_A)){
-  //      if(ctr == 0){
-  //        pgtable[j] &= ~PTE_A;
-  //      }
-  //      ctr = (ctr + 1) % 10;
-  //    }
-  //  }
-  //}
-        pte_t * pte;
-        for(int i = 0 ; i < p->sz; i+= PGSIZE){
-                        pte = walkpgdir(pgdir , (void *) i , 0);
-                        if((*pte & PTE_P) && (*pte & PTE_U) && (*pte & PTE_A)){
-                                if(ctr == 0){
-                                        *pte &= ~PTE_A;
-                                }
-                                ctr = (ctr + 1) % 10;
-                        }
-                }
+  for(int i = 0 ; i < NPDENTRIES; i++){
+   if(!(pgdir[i] & PTE_P)){
+     continue;
+   }
+   pte_t * pgtable = (pte_t*) P2V(PTE_ADDR(pgdir[i]));
+   for(int j = 0 ; j < NPTENTRIES; j++){
+     if((pgtable[j] & PTE_P) && (pgtable[j] & PTE_U)){
+       if(ctr == 0){
+         pgtable[j] &= ~PTE_A;
+       }
+       ctr = (ctr + 1) % 10;
+     }
+   }
+  }
+        // pte_t * pte;
+        // for(int i = 0 ; i < p->sz; i+= PGSIZE){
+        //                 pte = walkpgdir(pgdir , (void *) i , 0);
+        //                 if((*pte & PTE_P) && (*pte & PTE_U) && (*pte & PTE_A)){
+        //                         if(ctr == 0){
+        //                                 *pte &= ~PTE_A;
+        //                         }
+        //                         ctr = (ctr + 1) % 10;
+        //                 }
+        //         }
 
 }
 
