@@ -4,7 +4,7 @@
 8010ff58 panicked
 801004f0 consputc.part.0
 80100710 printint
-80108374 digits.0
+80108318 digits.0
 00000000 exec.c
 00000000 file.c
 00000000 fs.c
@@ -22,9 +22,9 @@
 00000000 kalloc.c
 00000000 kbd.c
 801136a0 shift.1
-801086c0 shiftcode
-801085c0 togglecode
-801085a0 charcode.0
+80108660 shiftcode
+80108560 togglecode
+80108540 charcode.0
 80109200 normalmap
 80109100 shiftmap
 80109000 ctlmap
@@ -43,14 +43,14 @@
 80103990 allocproc
 8010b000 first.1
 801158b4 initproc
-801087c0 states.0
+80108760 states.0
 801046f4 get_victim_page.cold
 801046fb flush_table.cold
 00000000 sleeplock.c
 00000000 spinlock.c
 00000000 string.c
 00000000 syscall.c
-801087e0 syscalls
+80108780 syscalls
 00000000 sysfile.c
 80104f90 create
 00000000 sysproc.c
@@ -67,7 +67,7 @@
 801079b9 copyout.cold
 00000000 cow.c
 00000000 pageswap.c
-80107d72 handle_page_fault.cold
+80107d24 handle_page_fault.cold
 80100370 consoleread
 801079c0 cow_fault
 80106bcf vector242
@@ -178,7 +178,7 @@
 80106a5b vector211
 801033d0 mpinit
 8010689f vector174
-80107c20 handle_page_fault
+80107be0 handle_page_fault
 80106bdb vector243
 80100f20 fileinit
 80104840 initlock
@@ -214,7 +214,7 @@
 80102670 freerange
 8010665c vector125
 80107250 allocuvm
-80107be0 dec_swap_slot_refcnt
+80107ba0 dec_swap_slot_refcnt
 80105d02 trapret
 80106a97 vector216
 8010642e vector63
@@ -324,7 +324,7 @@
 80106a13 vector205
 80106803 vector161
 801158e0 tickslock
-80107b00 cow_page
+80107ac0 cow_page
 80103790 pipewrite
 80104c80 strncpy
 80107540 copyuvm
@@ -391,7 +391,7 @@
 80102740 kinit1
 801063b9 vector50
 80106280 vector15
-80107bb0 clear_slot
+80107b70 clear_slot
 80107670 copyuvm_cow
 8010678b vector151
 801064e2 vector83

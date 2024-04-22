@@ -56,7 +56,7 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 }
 
 void swap_out(){
-	int * page_to_refcnt = get_refcnt_table();
+	// int * page_to_refcnt = get_refcnt_table();
 	pte_t* pte = final_page();
 	for(int i = 0 ; i < NPAGE; i++){
 		if(swap_slots[i].is_free == FREE){
@@ -65,13 +65,13 @@ void swap_out(){
 			uint pa = PTE_ADDR(*pte);
 			write_page_to_swap(swap_slots[i].blockno, (char*)P2V(pa));
 
-			int refcnt = page_to_refcnt[pa >> PTXSHIFT];
+			// int refcnt = page_to_refcnt[pa >> PTXSHIFT];
 			// this is needed because when we are swapping out a page that is referred to by 
 			// multiple page table entries, we need to free the page only when all the references are gone
-			swap_slots[i].refcnt_to_disk = refcnt;
-			for(int i = 0 ; i < refcnt; i++){
+			// swap_slots[i].refcnt_to_disk = refcnt;
+			// for(int i = 0 ; i < refcnt; i++){
 				kfree((char*)P2V(pa));
-			}
+			// }
 
 			*pte = swap_slots[i].blockno << PTXSHIFT;
 			*pte |= PTE_FLAGS(*pte);
@@ -123,9 +123,6 @@ void handle_page_fault(){
 	pte_t * pte = walkpgdir(p->pgdir, (void*) va, 0);
 	if(*pte & PTE_P){
 		// 
-		if(!(*pte & PTE_U)){
-			panic("OS pages cant be swapped");
-		}
 		cprintf("page fault due to cow\n");
 		if(page_to_refcnt[*pte >> PTXSHIFT] > 1){
 			// copy on write
