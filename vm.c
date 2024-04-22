@@ -78,7 +78,53 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
   }
   return 0;
 }
+static int
+mappages_memory_update(pde_t *pgdir, void *va, uint size, uint pa, int perm, int pid)
+{
+  char *a, *last;
+  pte_t *pte;
 
+  a = (char *)PGROUNDDOWN((uint)va);
+  last = (char *)PGROUNDDOWN(((uint)va) + size - 1);
+  for (;;)
+  {
+    if ((pte = walkpgdir(pgdir, a, 1)) == 0)
+      return -1;
+    if (*pte & PTE_P)
+      panic("remap");
+    *pte = pa | perm | PTE_P;
+    inc_refcnt_in_memory(pa, pte, pid);
+    if (a == last)
+      break;
+    a += PGSIZE;
+    pa += PGSIZE;
+  }
+  return 0;
+}
+static int
+mappages_hdr_update(pde_t *pgdir, void *va, uint size, uint pa, int perm, int pid)
+{
+  char *a, *last;
+  pte_t *pte;
+
+  a = (char *)PGROUNDDOWN((uint)va);
+  last = (char *)PGROUNDDOWN(((uint)va) + size - 1);
+  for (;;)
+  {
+    if ((pte = walkpgdir(pgdir, a, 1)) == 0)
+      return -1;
+    if (*pte & PTE_P)
+      panic("remap");
+    *pte = pa | perm;
+    inc_refcnt_in_hdr(pa >> PTXSHIFT, pte, pid);
+    // cprintf("in mappages new: %x\n", *pte);
+    if (a == last)
+      break;
+    a += PGSIZE;
+    pa += PGSIZE;
+  }
+  return 0;
+}
 // There is one page table per process, plus one that's used when
 // a CPU is not running any process (kpgdir). The kernel uses the
 // current process's page table during system calls and interrupts;
@@ -180,7 +226,7 @@ switchuvm(struct proc *p)
 // Load the initcode into address 0 of pgdir.
 // sz must be less than a page.
 void
-inituvm(pde_t *pgdir, char *init, uint sz)
+inituvm(pde_t *pgdir, char *init, uint sz, int pid)
 {
   char *mem;
 
@@ -188,7 +234,7 @@ inituvm(pde_t *pgdir, char *init, uint sz)
     panic("inituvm: more than a page");
   mem = kalloc();
   memset(mem, 0, PGSIZE);
-  mappages(pgdir, 0, PGSIZE, V2P(mem), PTE_W|PTE_U);
+  mappages_memory_update(pgdir, 0, PGSIZE, V2P(mem), PTE_W|PTE_U, pid);
   memmove(mem, init, sz);
 }
 
@@ -238,13 +284,12 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
       return 0;
     }
     memset(mem, 0, PGSIZE);
-    if(mappages(pgdir, (char*)a, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0){
+    if(mappages_memory_update(pgdir, (char*)a, PGSIZE, V2P(mem), PTE_W|PTE_U, myproc()->pid) < 0){
       cprintf("allocuvm out of memory (2)\n");
       deallocuvm(pgdir, newsz, oldsz);
       kfree(mem);
       return 0;
     }
-    myproc()->rss += PGSIZE;
   }
   return newsz;
 }
@@ -268,20 +313,20 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
     if(!pte)
       a = PGADDR(PDX(a) + 1, 0, 0) - PGSIZE;
     else if((*pte & PTE_P) != 0){
+
       pa = PTE_ADDR(*pte);
-      if(pa == 0)
+      if (pa == 0)
         panic("kfree");
       char *v = P2V(pa);
+      dec_refcnt_in_memory(pa, pte);
       kfree(v);
       myproc()->rss -= PGSIZE;
       *pte = 0;
-    } else {
-      if((*pte & PTE_SW)){
-        int refcnt = dec_swap_slot_refcnt(pte);
-        if(refcnt == 0){
-          clear_slot(pte);
-        }
-      }
+
+    } else if ((*pte & PTE_SW)) {
+      int slot_no_i = PTE_ADDR(*pte) >> PTXSHIFT;
+      dec_refcnt_in_hdr(slot_no_i, pte);
+      *pte = 0;
     }
   }
   return newsz;
@@ -301,17 +346,20 @@ deallocuvm_proc(struct proc * p, pde_t *pgdir, uint oldsz, uint newsz)
     if(!pte)
       a = PGADDR(PDX(a) + 1, 0, 0) - PGSIZE;
     else if((*pte & PTE_P) != 0){
+
       pa = PTE_ADDR(*pte);
-      if(pa == 0)
+      if (pa == 0)
         panic("kfree");
       char *v = P2V(pa);
+      dec_refcnt_in_memory(pa, pte);
       kfree(v);
       p->rss -= PGSIZE;
       *pte = 0;
-    } else {
-      if(*pte & PTE_SW){
-        clear_slot(pte);
-      }
+
+    } else if((*pte & PTE_SW)){
+      int slot_no_i = PTE_ADDR(*pte) >> PTXSHIFT;
+      dec_refcnt_in_hdr(slot_no_i, pte);
+      *pte = 0;
     }
   }
   return newsz;
@@ -384,45 +432,44 @@ bad:
 pde_t*
 copyuvm_cow(pde_t *pgdir, uint sz, struct proc * p)
 {
+
   pde_t *d;
   pte_t *pte;
   uint pa, i, flags;
-  // char *mem;
-  int * page_to_refcnt = get_refcnt_table();
-
   if((d = setupkvm()) == 0)
     return 0;
   for(i = 0; i < sz; i += PGSIZE){
-    p->rss += PGSIZE;
     if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
       panic("copyuvm: pte should exist");
-    // change here
-    if(!(*pte & PTE_P))
+    if(!(*pte & PTE_P)){
+      if (*pte & PTE_SW){
+        *pte &= ~PTE_W;
+        pa = PTE_ADDR(*pte);
+        flags = PTE_FLAGS(*pte);
+        if (mappages_hdr_update(d, (void *)i, PGSIZE, pa, flags, p->pid) < 0){
+          goto bad;
+        }
+        lcr3(V2P(pgdir));
+        continue;
+      }
       panic("copyuvm: page not present");
+    }
+    p->rss += PGSIZE;
+    *pte &= ~PTE_W;
     pa = PTE_ADDR(*pte);
     flags = PTE_FLAGS(*pte);
-    // if((mem = kalloc()) == 0)
-    //   goto bad;
-    // memmove(mem, (char*)P2V(pa), PGSIZE);
-
-    int new_flags = flags & ~PTE_W;
-    *pte &= ~PTE_W;
-    if(mappages(d, (void*)i, PGSIZE, pa, new_flags) < 0) {
-      // kfree(mem);
+    if(mappages_memory_update(d, (void*)i, PGSIZE, pa, flags, p->pid) < 0) {
       goto bad;
     }
-
-    page_to_refcnt[pa >> PTXSHIFT]++;
-    cprintf("copyuvm_cow: refcnt = %d of pageno %d\n", page_to_refcnt[pa >> PTXSHIFT], pa >> PTXSHIFT);
-
+    lcr3(V2P(pgdir));
   }
-
-  lcr3(V2P(pgdir));
   return d;
 
 bad:
   freevm(d);
   return 0;
+
+
 }
 void
 freevm_proc(struct proc * p, pde_t *pgdir)

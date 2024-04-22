@@ -95,14 +95,10 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 
 
 void inc_refcnt_in_memory(uint pa, pte_t* pte, int pid){
-    // acquiresleep(&reflock);
-    page_to_ptes_map[pa >> PTXSHIFT][page_to_ref_cnt[pa>>12]] = pte;
+    page_to_ptes_map[pa >> PTXSHIFT][page_to_ref_cnt[pa >> PTXSHIFT]] = pte;
     page_to_proc_pid_map[pa >> PTXSHIFT][page_to_ref_cnt[pa >> PTXSHIFT]] = pid;
-    // cprintf("incrementing pid: %d", pid);
     page_to_ref_cnt[pa >> PTXSHIFT] += 1;
     update_rss(pid, PGSIZE);
-    // releasesleep(&reflock);
-    // cprintf("incremented %x to %x with pte:%x\n", pa, rmap[pa >> 12], pte);
 }
 
 
@@ -221,46 +217,6 @@ int dec_swap_slot_refcnt(pte_t * pte){
 	}
 	return --(swap_slots[(blockno - SWAPBASE) / BPPAGE].refcnt_to_disk);
 };
-// void handle_page_fault(){
-// 	// cprintf("Page fault\n");
-// 	int * page_to_refcnt = get_refcnt_table();
-// 	uint va = rcr2();
-// 	struct proc* p = myproc();
-// 	pte_t * pte = walkpgdir(p->pgdir, (void*) va, 0);
-// 	if(*pte & PTE_P){
-// 		// 
-// 		cprintf("page fault due to cow\n");
-// 		if(page_to_refcnt[*pte >> PTXSHIFT] > 1){
-// 			// copy on write
-// 			cow_page(pte);
-// 		}
-// 		else {
-// 			// normal pagefault
-// 			// give the write flag when single reference
-// 			cprintf("no duplicatin is needed for pg = %d", *pte >> PTXSHIFT);
-// 			*pte = *pte | PTE_W;
-// 			lcr3(V2P(p->pgdir));
-// 		}
-// 	}
-// 	else {
-// 		cprintf("normal pagefault\n");
-// 		char * pg = kalloc();
-// 		if(pg == 0){
-// 			panic("kalloc failing in pagefault\n");
-// 		}
-// 		p->rss += PGSIZE;
-// 		// pte_t * pte = walkpgdir(p->pgdir, (void*) va, 0);
-// 		uint blockno = *pte >> PTXSHIFT;
-// 		read_page_from_swap(blockno, pg);
-// 		int swap_slot_i = (blockno - SWAPBASE) / BPPAGE;
-// 		int * page_to_refcnt = get_refcnt_table();
-// 		page_to_refcnt[(*pte) >> PTXSHIFT] = swap_slots[swap_slot_i].refcnt_to_disk;
-// 		*pte = (V2P(pg) & ~0xFFF)  | swap_slots[swap_slot_i].page_perm;
-// 		*pte |= PTE_P;
-// 		swap_slots[swap_slot_i].is_free = FREE;
-// 	}
-// }
-
 
 void handle_page_fault(void)
 {

@@ -128,7 +128,7 @@ userinit(void)
   initproc = p;
   if((p->pgdir = setupkvm()) == 0)
     panic("userinit: out of memory?");
-  inituvm(p->pgdir, _binary_initcode_start, (int)_binary_initcode_size);
+  inituvm(p->pgdir, _binary_initcode_start, (int)_binary_initcode_size,p->pid);
   p->sz = PGSIZE;
   memset(p->tf, 0, sizeof(*p->tf));
   p->tf->cs = (SEG_UCODE << 3) | DPL_USER;
@@ -286,11 +286,11 @@ wait(void)
       havekids = 1;
       if(p->state == ZOMBIE){
         // Found one.
-        clear_zombie(p);
+        // clear_zombie(p);
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
-        p->rss -= PGSIZE; // for k-stack
+        // p->rss -= PGSIZE; // for k-stack
         freevm_proc(p,p->pgdir);
         p->pid = 0;
         p->parent = 0;
@@ -593,7 +593,7 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
   return &pgtab[PTX(va)];
 }
 pte_t* get_victim_page(struct proc * v){
-  pde_t* pgdir = v->pgdir;
+  pde_t * pgdir = v->pgdir;
   pte_t* pte;
   //for(int i = 0 ; i < NPDENTRIES ; i++){
   //  if(!(pgdir[i] & PTE_P)){
@@ -607,6 +607,8 @@ pte_t* get_victim_page(struct proc * v){
   //    }
   //  }
   //}
+
+
         for(int i = 0 ; i < v->sz; i+= PGSIZE){
                 pte = walkpgdir(pgdir, (void * ) i , 0);
                 if((*pte & PTE_P) && (*pte & PTE_U) && !(*pte & PTE_A)){
@@ -648,15 +650,13 @@ void flush_table(struct proc * p){
 
 pte_t* final_page(){
   struct proc * v = get_victim_process();
-  // cprintf("victim process is %d\n", (int) v->pid);
-  v->rss -= PGSIZE;
   pte_t* pte = get_victim_page(v);
-  if(pte == 0){
+  while(pte == 0){
     flush_table(v);
     pte = get_victim_page(v);
-    if(pte == 0){
-      cprintf("Flusing again\n");
-    }
+    // if(pte == 0){
+      // cprintf("Flusing again\n");
+    // }
   }
   return pte;
 }

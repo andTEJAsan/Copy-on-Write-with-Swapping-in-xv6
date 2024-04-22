@@ -60,9 +60,9 @@ freerange(void *vstart, void *vend)
   p = (char*)PGROUNDUP((uint)vstart);
   for(; p + PGSIZE <= (char*)vend; p += PGSIZE)
   {
+    init_refcnt(V2P(p));
     kfree(p);
     // kmem.num_free_pages+=1;
-    page_to_refcnt[V2P(p) >> PTXSHIFT] = 0;
 
   }
     
@@ -97,7 +97,7 @@ kfree(char *v)
   }
   else{
     // cprintf("page %d is not free\n", V2P(v) >> PTXSHIFT);
-    cprintf("Wait till refcnt is 0\n");
+    // cprintf("Wait till refcnt is 0\n");
   }
 }
 
@@ -116,7 +116,6 @@ kalloc(void)
   {
     kmem.freelist = r->next;
     kmem.num_free_pages-=1;
-    page_to_refcnt[V2P(r) >> PTXSHIFT] = 1;
     // cprintf("setting refcnt of page %d\n", V2P(r) >> PTXSHIFT);
   }
     
@@ -124,7 +123,6 @@ kalloc(void)
     release(&kmem.lock);
 
   if(r) return (char*)r;
-
   swap_out();
   return kalloc();
 }

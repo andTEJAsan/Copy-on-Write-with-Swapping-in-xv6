@@ -31,6 +31,9 @@ void update_rss(int pid, int increment);
 void dec_refcnt_in_hdr(int slot_no_i, pte_t *pte);
 void dec_refcnt_in_memory(uint pa, pte_t* pte);
 uint get_refcnt(uint pa);
+void inc_refcnt_in_memory(uint pa, pte_t* pte, int pid);
+void inc_refcnt_in_hdr(int slot_no_i, pte_t *pte, int pid);
+void init_refcnt(uint pa);
 
 #ifndef PTE_A
 #define PTE_A 0x020
@@ -208,7 +211,7 @@ char*           uva2ka(pde_t*, char*);
 int             allocuvm(pde_t*, uint, uint);
 int             deallocuvm(pde_t*, uint, uint);
 void            freevm(pde_t*);
-void            inituvm(pde_t*, char*, uint);
+void            inituvm(pde_t*, char*, uint, int);
 int             loaduvm(pde_t*, char*, struct inode*, uint, uint);
 pde_t*          copyuvm(pde_t*, uint);
 void            switchuvm(struct proc*);
